@@ -1,0 +1,159 @@
+---
+title: "Legea lui Benford"
+author: "Visalon Giani, Capmare Alex, Butelca Radu"
+date: "Data:1/20/2022"
+output: 
+  html_document: 
+    theme: flatly
+
+
+    
+runtime: shiny
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+ În cadrul acestui proiect am dorit să implementăm Legea lui Benford, aplicată șirului lui Fibonacci si pentru puterile lui 2.\par
+Distributia Benford, mai bine cunoscută sub numele de legea lui Benford, sau legea primelor cifre, descrie distributia probabilitatii cu care apare prima cifra a numerelor in multe exemple de colectii reale de date  (de exemplu, populația municipalitatilor, citate de actiuni, constante fizice  sau matematice, număr a drumurilor existente în localitati). In cazul cifrei $1$, de exemplu, aceasta variabila discreta aleatoare  ar trebui să fie prima cifră în $30,1\%$ din cazuri.\par
+Functia de probabilitate este data de
+Una dintre extensiile legii lui Benford ia in considerare perechea primelor doua cifre (deci de la $10$ la $99$), lasand formula neschimbata, dar modificand doar intervalul de valabilitate, de la $[1,9]$ la $[10,99]$ .
+Un set de numere satisface legea lui Benford daca fiecare prima cifra apare cu frecventa data formula urmatoare:
+$$P(n) = log_{10}(n+1) - log_{10}(n) = log_{10}(\frac{n+1}{n}), n\in\{1\dots9\}$$
+Atunci cand numerele se afla in alta baza, legea poate fi ilustrata dupa formula:
+$$P(n)=log_{b}(n+1)-log_b(n) $$
+
+
+```{r echo = FALSE}
+
+frecv <- numeric(9)
+for (i in 1:9)
+{frecv[i] = log10((i+1)/i)}
+par(mfrow = c(1,1))
+barplot(frecv, main = "Legea lui Benford", col = rainbow(9), xlab = "Cifra", ylab = "Frecventa aparitiilor")
+legend("topright", 
+       legend = c("1", "2","3","4","5","6","7","8","9"), 
+       fill = c("red", "orange", "chartreuse", "chartreuse3", "aquamarine", "deepskyblue", "blue", "blueviolet", "deeppink"))
+
+
+
+
+
+```
+```{r echo = FALSE}
+benford_fibo <- function(numar_termeni){
+frecv <- numeric(9)
+
+Fibonacci <- numeric(numar_termeni)
+Fibonacci[1] <- Fibonacci[2] <- 1
+
+# Deja s-au gasit 2 numere cu prima cifra 1
+frecv[1] <- 2
+
+#calculam termenii din fibo
+
+for (i in 3:numar_termeni) {
+  Fibonacci[i] <- Fibonacci[i - 2] + Fibonacci[i - 1]
+  string <- substr(as.character(Fibonacci[i]),1,1)
+    first.digits <- as.integer(string)
+    frecv[first.digits] <- frecv[first.digits] + 1
+}
+mids <-barplot(frecv, xlab ="Cifra", ylab = "Frecventa", main = "Legea lui Benford pentru sirul Fibonacci", col = "steelblue")
+
+ axis(1, at=mids, labels=c("1","2","3","4","5","6",
+                           "7","8","9"), 
+      las=1)
+
+
+return (mids)
+}
+```
+
+
+```{r echo = FALSE}
+library(shiny)
+ui <- fluidPage(
+  fluidRow(
+    column(2, 
+      numericInput("n", label = "Introduceti numarul de valori:", value = 20, min = 2),
+      actionButton("simulate", "Genereaza!")
+    ),
+    column(9, plotOutput("hist"))
+  )
+)
+  
+server <- function(input, output) {
+ 
+  x <- reactive({
+    input$simulate
+    benford_fibo(input$n)
+  })
+  output$hist <- renderPlot({
+    
+    x()
+  }, res = 96)
+}
+ 
+shinyApp (ui = ui, server = server)  
+```
+
+```{r echo = FALSE}
+#sirul puterilor lui 2
+
+frecv <- numeric(9)
+benford_doi <- function(numar_termeni){
+PuteriDoi <- numeric(numar_termeni)
+PuteriDoi[1] = 1
+for(i in 2:numar_termeni){
+  PuteriDoi[i] = 2 * PuteriDoi[i-1]
+  string <- substr(as.character(PuteriDoi[i]),1,1)
+    first.digits <- as.integer(string)
+    frecv[first.digits] <- frecv[first.digits] + 1
+}
+  mids <-barplot(frecv, xlab ="Cifra", ylab = "Frecventa", main = "Legea lui Benford pentru sirul puterilor lui 2", col = "steelblue")
+
+ axis(1, at=mids, labels=c("1","2","3","4","5","6",
+                           "7","8","9"), 
+      las=1)
+
+
+return (mids)
+}
+
+```
+
+```{r echo = FALSE}
+library(shiny)
+ui <- fluidPage(
+  fluidRow(
+    column(2, 
+  
+      numericInput("n", label = "Introduceti numarul de valori:", value = 20, min = 2, max = 100),
+      actionButton("simulate", "Genereaza!")
+    ),
+    column(9, plotOutput("hist"))
+  )
+)
+  
+server <- function(input, output) {
+  
+  x <- reactive({
+    input$simulate
+    benford_doi(input$n)
+  })
+  output$hist <- renderPlot({
+    
+    x()
+  }, res = 96)
+}
+ 
+shinyApp (ui = ui, server = server) 
+```
+
+
+O scurta explicatie intuitiva a motivului pentru care o astfel de diferenta în distributie apare în „natura” (cu numărul „$1$” care apare mai frecvent, apoi, dupa aceea, numarul $2$ și așa mai departe) ia în considerare faptul ca, în numararea acestuia, incepe de la numărul $1$ pana la $9$. Dacă restrangem campul doar la numerele de la $1$ la $9$ este clar că probabilitatea ca o cifră sa inceapa cu $1$ sau $2$ sau $3$ sau $9$ trebuie să fie intotdeauna aceeași. \par Cu toate acestea, acolo unde numerele de la $1$ la $20$ sunt deja luate în considerare, vor exista mult mai multe numere începând cu cifra $1 (10$ la $19)$. \par Daca luati cele de la $1$ la $30$, veti avea multe incepand cu $1$, dar și cu $2$. \par După cum puteti vedea cu usurinta, pentru a avea, de exemplu, numere care incep cu $9$, trebuie să mergeți foarte departe cu numerele. Același argument se poate face cu seturi de numere de mai multe cifre, pentru care într-o distribuție a numerelor legate de suprafețe, populații, probabilitatea de a avea numere incepand cu $1$, mai degraba decat cu $9$. Va fi mai mare. Singurul lucru este însa ca Benford a reusit sa arate că, pentru multe distributii, probabilitatea ca un numar sa inceapa cu o anumita cifra intre $1$ si $9$ este întotdeauna aceeași ($30,1\%$ pentru cifra $1$, $17$,$6\%$ pentru cifra $2$, $4$,6% pentru cifra $9$ ).\par
+In prezent Legea lui Benford este folosita de o multime de institutii din toata lumea, pentru detectarea fraudelor cu ocazia alegerilor, a fraudelor din lucrarile științifice, cercetare, statistica, arhitectura și multe altele. Metoda este folosita in unele tari și pentru detectarea fraudelor fiscale, exemplul cel mai popular fiind vestitul  IRS din SUA.\par
+Legea lui Benford a fost testata empiric in raport cu numerele (pana la a $10$-a cifra) generate de un numar de distributii importante, inclusiv distributia uniforma, distributia exponentiala, distributia normală si altele.
+\par
+Distributia uniforma, asa cum era de asteptat, nu respecta legea lui Benford. In contrast, distributia raportului a doua distributii uniforme este bine descrisa de legea lui Benford.
+\par
+Nici distributia normala, nici distributia raportului a doua distributii normale (distributia Cauchy) nu respecta legea lui Benford. Desi distributia pe jumatate normala nu respecta legea lui Benford, distributia raportului a doua distributii pe jumatate normala o face. Nici distributia normala trunchiata la dreapta si nici distributia raportului a doua distributii normale trunchiate la dreapta nu sunt bine descrise de legea lui Benford. Acest lucru nu este surprinzator, deoarece aceasta distributie este ponderata catre un numar mai mare.
