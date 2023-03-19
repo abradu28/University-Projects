@@ -52,8 +52,9 @@ local function SetupGame()
 			*CFrame.Angles(math.random()*math.pi*2,math.random()*math.pi*2,math.random()*math.pi*2);
 		newMeteor.Size = Vector3.new(1,1,1) * radius;
 		meteors[#meteors + 1] = {
-			Position = newMeteor.CFrame.Position;
-			Radius = radius;
+			Position = Vector2.new(newMeteor.CFrame.Position.X, newMeteor.CFrame.Position.Z);
+			Radius = radius/2;
+			Model = newMeteor;
 		};
 	end
 	
@@ -70,7 +71,17 @@ local function SetupGame()
 end
 
 local function CheckCollisions()
+	local rocketPos = Vector2.new(root.Position.X, root.Position.Z);
+	local rocketR = root.Size.X/2;
 	
+	for i,v in pairs(meteors) do
+		local distVec = v.Position - rocketPos
+		local distSqr = distVec.X^2 + distVec.Y^2;
+		if (distSqr <= (rocketR + v.Radius)^2) then
+			return true, i;
+		end
+	end
+	return false, -1;
 end
 
 step.RenderStepped:Connect(function()
@@ -88,7 +99,12 @@ step.Stepped:Connect(function(totalT, t)
 	
 	UpdateVariables(t, moveVec);
 	UpdateRocketPosition(t, moveVec);
-	CheckCollisions();
+	local res, index = CheckCollisions();
+	if res == true then
+		warn("YES");
+		meteors[index].Model:Destroy();
+		table.remove(meteors, index);
+	end
 end)
 
 SetupGame();
