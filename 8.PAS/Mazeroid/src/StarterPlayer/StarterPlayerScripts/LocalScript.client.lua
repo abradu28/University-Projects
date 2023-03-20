@@ -1,10 +1,27 @@
 local step = game:GetService('RunService');
 local uis = game:GetService('UserInputService');
-
-local meteor = game.ReplicatedStorage.Meteor;
+local ts = game:GetService('TweenService');
 
 local plr = game.Players.LocalPlayer;
 local plrGui = plr:WaitForChild('PlayerGui');
+local ui = game.StarterGui:WaitForChild('UI');
+ui.Parent = plrGui;
+
+local states = {
+	IsFading = false;
+	IsPlaying = false;
+	IsTesting = false;
+}
+
+local scene = game.ReplicatedStorage.Scene;
+scene.Parent = nil;
+local meteor = game.ReplicatedStorage.Meteor;
+meteor.Parent = nil;
+local explosion = game.ReplicatedStorage.Explosion;
+explosion.Parent = nil;
+
+local cameraTarget = nil;
+
 local cam = game.Workspace.CurrentCamera;
 cam.CameraType = Enum.CameraType.Scriptable;
 
@@ -16,9 +33,37 @@ local function Lerp(a, b, alpha)
 	return a + (b - a) * alpha;
 end
 
+function FadeIn(t)
+	local tween = ts:Create(ui.Fade.Main, TweenInfo.new(t, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, 0, false, 0),
+		{Size = UDim2.new(0.005,0,0.005,0)})
+	
+	states.IsFading = true;
+	tween.Completed:Connect(function(a)
+		if a == Enum.PlaybackState.Completed then
+			ui.Fade.BackgroundTransparency = 0;
+			states.IsFading = false;
+		end
+	end)
+	tween:Play();
+end
+
+function FadeOut(t)
+	local tween = ts:Create(ui.Fade.Main, TweenInfo.new(t, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, 0, false, 0),
+		{Size = UDim2.new(1.5,0,1.5,0)})
+	ui.Fade.BackgroundTransparency = 1;
+	
+	states.IsFading = true;
+	tween.Completed:Connect(function(a)
+		if a == Enum.PlaybackState.Completed then
+			states.IsFading = false;
+		end
+	end)
+	tween:Play();
+end
+
 local function SetEffects()
 	game.StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false);
-	for i,v in pairs(game.Workspace.Layers:GetChildren()) do
+	for i,v in pairs(game.Workspace.Details.Layers:GetChildren()) do
 		v.Transparency = 1;
 	end
 	game.ReplicatedStorage.Skybox.Parent = game.Lighting;
@@ -28,18 +73,31 @@ local function SetEffects()
 	local r = (start - spawnLocations.End.Position).Magnitude;
 	for i = 1,1000 do
 		local newMeteor = meteor:Clone();
-		newMeteor.Parent = game.Workspace;
+		newMeteor.Parent = game.Workspace.Meteors_Effect;
 		newMeteor.CFrame = CFrame.new(start-Vector3.new(0,40+math.random()*40,0))
-			*CFrame.Angles(0,math.random()*math.pi*2,0)
-			*CFrame.new(0,0,math.sqrt(math.random())*r)
-			*CFrame.Angles(math.random()*math.pi*2,math.random()*math.pi*2,math.random()*math.pi*2);
+							*CFrame.Angles(0,math.random()*math.pi*2,0)
+							*CFrame.new(0,0,math.sqrt(math.random())*r)
+							*CFrame.Angles(math.random()*math.pi*2,math.random()*math.pi*2,math.random()*math.pi*2);
 		newMeteor.Size = Vector3.new(10,10,10)+Vector3.new(20,20,20)*math.random()
 		newMeteor.BrickColor = BrickColor.Blue();
 	end
+	
+	local rotSpeed = 90;
+	step.RenderStepped:Connect(function(t)
+		scene.Rocket:PivotTo(scene.Rocket.PrimaryPart.CFrame*CFrame.Angles(-math.rad(rotSpeed)*t,0,0));
+	end)
 end
 
-local function SetupGame()
-	SetEffects();
+local function ClearGame()
+	ui.Buttons.Visible = true;
+	game.Workspace.Meteors:ClearAllChildren();
+	game.Workspace.Rockets:ClearAllChildren(); -- TODO scoate functionalul de racheta
+	states.IsPlaying = false;
+	meteors = {};
+end
+
+local function SetupSoloGame()
+	ui.Buttons.Visible = false;
 	
 	local spawnLocations = game.Workspace.MeteorSpawnLocations;
 	local start = spawnLocations.Origin.Position;
@@ -48,7 +106,7 @@ local function SetupGame()
 	for i = 1,10000 do
 		local radius = 1 + 6 * math.random();
 		local newMeteor = meteor:Clone();
-		newMeteor.Parent = game.Workspace;
+		newMeteor.Parent = game.Workspace.Meteors;
 		newMeteor.CFrame = CFrame.new(start)
 			*CFrame.Angles(0,math.random()*math.pi*2,0)
 			*CFrame.new(0,0,math.sqrt(math.random())*r)
@@ -61,10 +119,10 @@ local function SetupGame()
 		};
 	end
 	
-	local explosion = game.Workspace.Explosion;
-	explosion.Parent = nil;
+	wait(0.5)
+	FadeOut(1);
+	
 	local playerRocket = rocketHandler:new();
-	local cameraTarget = playerRocket;
 	playerRocket:SetInputsGetter(function()
 		local forward = uis:IsKeyDown(Enum.KeyCode.W);
 		local backward = uis:IsKeyDown(Enum.KeyCode.S);
@@ -88,21 +146,64 @@ local function SetupGame()
 		return false;
 	end):SetOnCollision(function()
 		playerRocket:Stop();
-		explosion.Parent = game.Workspace;
-		explosion.Position = playerRocket.Object.PrimaryPart.Position;
-		explosion.ParticleEmitter:Emit(100);
+		local explosionNew = explosion:Clone();
+		explosionNew.Parent = game.Workspace;
+		explosionNew.Position = playerRocket.Object.PrimaryPart.Position;
+		explosionNew.ParticleEmitter:Emit(100);
+		game.Debris:AddItem(explosionNew, 2);
+		
+		FadeIn(1.5);
+		wait(2)
+		ClearGame();
+		FadeOut(1.5);
+		ShowScene();
 		playerRocket:Destroy();
-		cameraTarget = nil;
 	end):Run();
 	
 	local cameraInterval = Vector2.new(25, 50);
+	cameraTarget = function()
+		local zDist = Lerp(cameraInterval.X, cameraInterval.Y, playerRocket:GetSpeedAlpha())
+		return CFrame.new(playerRocket.Object.PrimaryPart.Position)*CFrame.Angles(-math.pi/2,0,0)*CFrame.new(0,0,zDist)
+	end
+	states.IsPlaying = true;
+end
+
+function SetupCamera()
 	step.RenderStepped:Connect(function()
 		if cameraTarget == nil then return; end
 		
-		local zDist = Lerp(cameraInterval.X, cameraInterval.Y, cameraTarget:GetSpeedAlpha())
-		cam.CFrame = CFrame.new(cameraTarget.Object.PrimaryPart.Position)*CFrame.Angles(-math.pi/2,0,0)*CFrame.new(0,0,zDist)
+		cam.CFrame = cameraTarget();
 	end)
 end
 
+function SetupButtons()
+	ui.Buttons.PlaySolo.Activated:Connect(function()
+		for i,v in pairs(states) do
+			if v == true then
+				--print(i, v)
+				return;				-- Sa nu paresti function haulting. Odata apasat, nu mai poate fi activat pana nu se termina de procesat
+			end
+		end
+		
+		FadeIn(1);
+		wait(1)
+		SetupSoloGame();
+	end)
+end
 
-SetupGame();
+function ShowScene()
+	scene.Parent = game.Workspace;
+	cameraTarget = function()
+		return scene.Camera.CFrame
+	end
+end
+
+function Start()
+	SetupButtons();
+	SetEffects();
+	ShowScene();
+	SetupCamera();
+end
+
+
+Start()

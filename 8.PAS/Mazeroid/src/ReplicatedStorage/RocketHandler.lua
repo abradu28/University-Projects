@@ -109,6 +109,7 @@ function class:Destroy()
 	for i,v in pairs(self._trash) do
 		v:Disconenct();
 	end
+	self.Overwrite.CheckCollisions = nil;
 	self.Object:Destroy();
 end
 
