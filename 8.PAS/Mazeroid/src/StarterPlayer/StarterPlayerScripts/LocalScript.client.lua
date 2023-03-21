@@ -28,6 +28,7 @@ cam.CameraType = Enum.CameraType.Scriptable;
 local rocketHandler = require(game.ReplicatedStorage.RocketHandler);
 
 local meteors = {};
+local rockets = {};
 
 local function Lerp(a, b, alpha)
 	return a + (b - a) * alpha;
@@ -35,7 +36,7 @@ end
 
 function FadeIn(t)
 	local tween = ts:Create(ui.Fade.Main, TweenInfo.new(t, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, 0, false, 0),
-		{Size = UDim2.new(0.005,0,0.005,0)})
+		{Size = UDim2.new(0.001,0,0.001,0)})
 	
 	states.IsFading = true;
 	tween.Completed:Connect(function(a)
@@ -48,7 +49,7 @@ function FadeIn(t)
 end
 
 function FadeOut(t)
-	local tween = ts:Create(ui.Fade.Main, TweenInfo.new(t, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, 0, false, 0),
+	local tween = ts:Create(ui.Fade.Main, TweenInfo.new(t, Enum.EasingStyle.Quint, Enum.EasingDirection.In, 0, false, 0),
 		{Size = UDim2.new(1.5,0,1.5,0)})
 	ui.Fade.BackgroundTransparency = 1;
 	
@@ -89,11 +90,16 @@ local function SetEffects()
 end
 
 local function ClearGame()
+	ui.GetRich.Visible = false;
 	ui.Buttons.Visible = true;
 	game.Workspace.Meteors:ClearAllChildren();
 	game.Workspace.Rockets:ClearAllChildren(); -- TODO scoate functionalul de racheta
 	states.IsPlaying = false;
 	meteors = {};
+	for i,v in pairs(rockets) do
+		v:Destroy();
+	end
+	rockets = {};
 end
 
 local function SetupSoloGame()
@@ -103,13 +109,15 @@ local function SetupSoloGame()
 	local start = spawnLocations.Origin.Position;
 	local r = (start - spawnLocations.End.Position).Magnitude;
 	
+	local innerCircle = 0.0125/4;
+	
 	for i = 1,10000 do
 		local radius = 1 + 6 * math.random();
 		local newMeteor = meteor:Clone();
 		newMeteor.Parent = game.Workspace.Meteors;
 		newMeteor.CFrame = CFrame.new(start)
 			*CFrame.Angles(0,math.random()*math.pi*2,0)
-			*CFrame.new(0,0,math.sqrt(math.random())*r)
+			*CFrame.new(0,0,math.sqrt(innerCircle+(1-innerCircle)*math.random())*r)
 			*CFrame.Angles(math.random()*math.pi*2,math.random()*math.pi*2,math.random()*math.pi*2);
 		newMeteor.Size = Vector3.new(1,1,1) * radius;
 		meteors[#meteors + 1] = {
@@ -121,6 +129,14 @@ local function SetupSoloGame()
 	
 	wait(0.5)
 	FadeOut(1);
+	
+	local function finishGame()
+		FadeIn(1.5);
+		wait(2)
+		ClearGame();
+		FadeOut(1.5);
+		ShowScene();
+	end
 	
 	local playerRocket = rocketHandler:new();
 	playerRocket:SetInputsGetter(function()
@@ -152,13 +168,51 @@ local function SetupSoloGame()
 		explosionNew.ParticleEmitter:Emit(100);
 		game.Debris:AddItem(explosionNew, 2);
 		
-		FadeIn(1.5);
-		wait(2)
-		ClearGame();
-		FadeOut(1.5);
-		ShowScene();
-		playerRocket:Destroy();
+		ui.GetRich.Text = 'DIE TRYING';
+		ui.GetRich.TextLabel.Text = 'DIE TRYING';
+		ui.GetRich.Visible = true;
+		ui.GetRich.TextTransparency = 1;
+		ui.GetRich.TextStrokeTransparency = 1;
+		ui.GetRich.TextLabel.TextTransparency = 1;
+		ui.GetRich.TextLabel.TextStrokeTransparency = 1;
+
+		ts:Create(ui.GetRich, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.In, 0, false, 0),
+			{TextTransparency = 0, TextStrokeTransparency = 0}):Play();
+		ts:Create(ui.GetRich.TextLabel, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.In, 0, false, 0),
+			{TextTransparency = 0, TextStrokeTransparency = 0}):Play();
+		wait(3);
+		
+		finishGame();
+	end):SetFinishChecker(function()
+		local rocketPos = playerRocket.Object.PrimaryPart.Position;
+		local distSqrt = rocketPos - start;
+		distSqrt = distSqrt:Dot(distSqrt);
+		
+		if distSqrt >= r*r then
+			return true;
+		else
+			return false;
+		end
+	end):SetOnFinish(function()
+
+		ui.GetRich.Text = 'GET RICH OR DIE TRYING';
+		ui.GetRich.TextLabel.Text = 'GET RICH OR DIE TRYING';
+		
+		ui.GetRich.Visible = true;
+		ui.GetRich.TextTransparency = 1;
+		ui.GetRich.TextStrokeTransparency = 1;
+		ui.GetRich.TextLabel.TextTransparency = 1;
+		ui.GetRich.TextLabel.TextStrokeTransparency = 1;
+
+		ts:Create(ui.GetRich, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.In, 0, false, 0),
+			{TextTransparency = 0, TextStrokeTransparency = 0}):Play();
+		ts:Create(ui.GetRich.TextLabel, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.In, 0, false, 0),
+			{TextTransparency = 0, TextStrokeTransparency = 0}):Play();
+		wait(3);
+		finishGame();
 	end):Run();
+	
+	rockets[#rockets + 1] = playerRocket;
 	
 	local cameraInterval = Vector2.new(25, 50);
 	cameraTarget = function()
@@ -180,7 +234,6 @@ function SetupButtons()
 	ui.Buttons.PlaySolo.Activated:Connect(function()
 		for i,v in pairs(states) do
 			if v == true then
-				--print(i, v)
 				return;				-- Sa nu paresti function haulting. Odata apasat, nu mai poate fi activat pana nu se termina de procesat
 			end
 		end

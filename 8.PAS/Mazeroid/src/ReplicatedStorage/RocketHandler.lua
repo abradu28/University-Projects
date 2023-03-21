@@ -5,6 +5,8 @@ local step = game:GetService('RunService');
 function class:Run()
 	if self.Overwrite.CheckCollisions == nil then return warn("Can't run Rocket Class if Collision function is not overloaded"); end
 	if self.Overwrite.GetInputs == nil then return warn("Can't run Rocket Class if GetInputs function is not overloaded"); end
+	if self.Overwrite.FinishChecker == nil then return warn("Can't run Rocket Class if FinishChecker function is not overloaded"); end
+	if self.Overwrite.OnFinish == nil then return warn("Can't run Rocket Class if OnFinish function is not overloaded"); end
 	
 	self.RunningStatus = 1;
 	
@@ -20,8 +22,13 @@ function class:Run()
 			self:UpdateRocketPosition(inputs, t);
 			if self.Overwrite.CheckCollisions() == true then
 				if (self.Overwrite.OnCollision ~= nil) then
-					self.Overwrite.OnCollision();
+					return self.Overwrite.OnCollision();
 				end
+			end
+			
+			if self.Overwrite.FinishChecker ~= nil and self.Overwrite.FinishChecker() == true then
+				self.Overwrite.FinishChecker = nil;
+				return self.Overwrite.OnFinish();
 			end
 		end
 	end)
@@ -54,6 +61,16 @@ end
 
 function class:SetOnCollision(lambda)
 	self.Overwrite.OnCollision = lambda;
+	return self;
+end
+
+function class:SetFinishChecker(lambda)
+	self.Overwrite.FinishChecker = lambda;
+	return self;
+end
+
+function class:SetOnFinish(lambda)
+	self.Overwrite.OnFinish = lambda;
 	return self;
 end
 
@@ -93,6 +110,8 @@ function class:new(sett)
 		Overwrite = {
 			CheckCollisions = nil;
 			OnCollision = nil;
+			FinishChecker = nil;
+			OnFinish = nil;
 			
 			GetInputs = nil;
 		};
@@ -107,7 +126,7 @@ end
 
 function class:Destroy()
 	for i,v in pairs(self._trash) do
-		v:Disconenct();
+		v:Disconnect();
 	end
 	self.Overwrite.CheckCollisions = nil;
 	self.Object:Destroy();
