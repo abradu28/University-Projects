@@ -2,18 +2,18 @@ local class = {};
 
 local step = game:GetService('RunService');
 
-function class:Run()
+function class:Start()
 	if self.Overwrite.CheckCollisions == nil then return warn("Can't run Rocket Class if Collision function is not overloaded"); end
 	if self.Overwrite.GetInputs == nil then return warn("Can't run Rocket Class if GetInputs function is not overloaded"); end
 	if self.Overwrite.FinishChecker == nil then return warn("Can't run Rocket Class if FinishChecker function is not overloaded"); end
 	if self.Overwrite.OnFinish == nil then return warn("Can't run Rocket Class if OnFinish function is not overloaded"); end
 	
-	self.RunningStatus = 1;
+	self:Run();
 	
 	self._trash.PhysicsHandler = step.Heartbeat:Connect(function(t)
 		if self.RunningStatus ~= 1 then return; end
 		
-		local count = math.round(t*60)
+		local count = math.round(t*60)*self.TimeScale;
 		for i = 1,count do
 			t = 1/60;
 			local inputs = self.Overwrite.GetInputs();
@@ -26,12 +26,17 @@ function class:Run()
 				end
 			end
 			
-			if self.Overwrite.FinishChecker ~= nil and self.Overwrite.FinishChecker() == true then
-				self.Overwrite.FinishChecker = nil;
+			if self.Overwrite.FinishChecker() == true then
 				return self.Overwrite.OnFinish();
 			end
 		end
 	end)
+end
+
+function class:Run()
+	if self.RunningStatus ~= 1 then
+		self.RunningStatus = 1;
+	end
 end
 
 function class:Pause()
@@ -46,6 +51,10 @@ function class:Stop()
 		self._trash.PhysicsHandler:Disconnect();
 		self._trash.PhysicsHandler = nil;
 	end
+end
+
+function class:GetStatus()
+	return self.RunningStatus;
 end
 
 
@@ -74,6 +83,10 @@ function class:SetOnFinish(lambda)
 	return self;
 end
 
+function class:SetTimeScale(nr)
+	self.TimeScale = nr or 1;
+end
+
 
 function class:GetSpeedAlpha()
 	return (self.CurrentSpeed - self.Settings.Speed.X)/(self.Settings.Speed.Y - self.Settings.Speed.X)
@@ -91,6 +104,10 @@ function class:UpdateVariables(inputs, t)
 	self.CurrentSpeed = math.clamp(self.CurrentSpeed + (deltaSpeed), self.Settings.Speed.X, self.Settings.Speed.Y);
 end
 
+function class:ResetVariables()
+	self.CurrentSpeed = self.Settings.Speed.X
+end
+
 function class:new(sett)
 	sett = sett or {
 		Speed = Vector2.new(5, 50);	-- UDM/Secunda
@@ -106,6 +123,8 @@ function class:new(sett)
 		RunningStatus = 0; 			-- 0=Stop 1=Running 2=Pause
 		CurrentSpeed = sett.Speed.X;
 		Settings = sett;
+		
+		TimeScale = 1;
 		
 		Overwrite = {
 			CheckCollisions = nil;

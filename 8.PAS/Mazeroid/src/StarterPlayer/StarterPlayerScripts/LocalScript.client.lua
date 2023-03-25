@@ -26,9 +26,22 @@ local cam = game.Workspace.CurrentCamera;
 cam.CameraType = Enum.CameraType.Scriptable;
 
 local rocketHandler = require(game.ReplicatedStorage.RocketHandler);
+local rectangle = require(game.ReplicatedStorage.Rectangle);
+local quadTree = require(game.ReplicatedStorage.QuadTree)
 
 local meteors = {};
+local quadMeteors = nil;
+local meteorsCount = 10000;
+local meteorSize = Vector3.new(2,5);
+
 local rockets = {};
+
+local aiCount = 20;
+local aiHandler = nil;
+local aiCameraSwitchSpeed = 100;
+local aiTimeScale = Vector2.new(1,10);
+
+local sliderCallback = nil;
 
 local function Lerp(a, b, alpha)
 	return a + (b - a) * alpha;
@@ -89,12 +102,57 @@ local function SetEffects()
 	end)
 end
 
+local function DestroyMeteors()
+	if quadMeteors then
+		quadMeteors = nil;
+	end
+	game.Workspace.Meteors:ClearAllChildren();
+	game.Workspace.Rockets:ClearAllChildren();
+end
+
+local function GenerateMeteors()
+	local spawnLocations = game.Workspace.MeteorSpawnLocations;
+	local start = spawnLocations.Origin.Position;
+	local r = (start - spawnLocations.End.Position).Magnitude;
+
+	local bounds = rectangle:new(start.X - r, start.Z - r, r*2, r*2);
+	quadMeteors = quadTree:new(bounds);
+
+	local innerCircle = 0.1/32;
+
+	for i = 1, meteorsCount do
+		local radius = meteorSize.X + (meteorSize.Y - meteorSize.X) * math.random();
+		local newMeteor = meteor:Clone();
+		newMeteor.Parent = game.Workspace.Meteors;
+		newMeteor.CFrame = CFrame.new(start)
+			*CFrame.Angles(0,math.random()*math.pi*2,0)
+			*CFrame.new(0,0,math.sqrt(innerCircle+(1-innerCircle)*math.random())*r)
+			*CFrame.Angles(math.random()*math.pi*2,math.random()*math.pi*2,math.random()*math.pi*2);
+		newMeteor.Size = Vector3.new(1,1,1) * radius * 2;
+		quadMeteors:insert({x = newMeteor.Position.X, y = newMeteor.Position.Z, radius = radius});
+		if i % 250 == 0 then
+			wait();
+		end
+	end
+end
+
 local function ClearGame()
 	ui.GetRich.Visible = false;
+	ui.AIFrame.Visible = false;
+	
+	if aiHandler then
+		aiHandler:Disconnect();
+		aiHandler = nil;
+	end
+	DestroyMeteors();
+	
 	ui.Buttons.Visible = true;
-	game.Workspace.Meteors:ClearAllChildren();
-	game.Workspace.Rockets:ClearAllChildren(); -- TODO scoate functionalul de racheta
 	states.IsPlaying = false;
+	states.IsTesting = false;
+	
+	ui.AIFrame.Slider.Bar.Circle.Position = UDim2.new(0, 0, 0.5, 0);
+	
+	sliderCallback = nil;
 	meteors = {};
 	for i,v in pairs(rockets) do
 		v:Destroy();
@@ -104,29 +162,13 @@ end
 
 local function SetupSoloGame()
 	ui.Buttons.Visible = false;
+	states.IsPlaying = true;
 	
+	GenerateMeteors();
 	local spawnLocations = game.Workspace.MeteorSpawnLocations;
 	local start = spawnLocations.Origin.Position;
 	local r = (start - spawnLocations.End.Position).Magnitude;
-	
-	local innerCircle = 0.0125/4;
-	
-	for i = 1,10000 do
-		local radius = 1 + 6 * math.random();
-		local newMeteor = meteor:Clone();
-		newMeteor.Parent = game.Workspace.Meteors;
-		newMeteor.CFrame = CFrame.new(start)
-			*CFrame.Angles(0,math.random()*math.pi*2,0)
-			*CFrame.new(0,0,math.sqrt(innerCircle+(1-innerCircle)*math.random())*r)
-			*CFrame.Angles(math.random()*math.pi*2,math.random()*math.pi*2,math.random()*math.pi*2);
-		newMeteor.Size = Vector3.new(1,1,1) * radius;
-		meteors[#meteors + 1] = {
-			Position = Vector2.new(newMeteor.CFrame.Position.X, newMeteor.CFrame.Position.Z);
-			Radius = radius/2;
-			Model = newMeteor;
-		};
-	end
-	
+
 	wait(0.5)
 	FadeOut(1);
 	
@@ -151,11 +193,16 @@ local function SetupSoloGame()
 		local rocketPos = Vector2.new(root.Position.X, root.Position.Z);
 		local rocketR = playerRocket.Settings.Radius;
 
-		local s = os.clock();
-		for i,v in pairs(meteors) do
-			local distVec = v.Position - rocketPos
+		local meteorsToCheck = {};
+		local insert = function(point)
+			meteorsToCheck[#meteorsToCheck + 1] = point;
+		end
+		quadMeteors:queryRange({x = rocketPos.X, y = rocketPos.Y}, rocketR + meteorSize.Y, insert);
+
+		for i,v in pairs(meteorsToCheck) do
+			local distVec = Vector2.new(v.x, v.y) - rocketPos
 			local distSqr = distVec.X^2 + distVec.Y^2;
-			if (distSqr <= (rocketR + v.Radius)^2) then
+			if (distSqr <= (rocketR + v.radius)^2) then
 				return true;
 			end
 		end
@@ -210,8 +257,7 @@ local function SetupSoloGame()
 			{TextTransparency = 0, TextStrokeTransparency = 0}):Play();
 		wait(3);
 		finishGame();
-	end):Run();
-	
+	end):Start();
 	rockets[#rockets + 1] = playerRocket;
 	
 	local cameraInterval = Vector2.new(25, 50);
@@ -219,7 +265,135 @@ local function SetupSoloGame()
 		local zDist = Lerp(cameraInterval.X, cameraInterval.Y, playerRocket:GetSpeedAlpha())
 		return CFrame.new(playerRocket.Object.PrimaryPart.Position)*CFrame.Angles(-math.pi/2,0,0)*CFrame.new(0,0,zDist)
 	end
-	states.IsPlaying = true;
+end
+
+local function SetupAITraining()
+	ui.Buttons.Visible = false;
+	ui.AIFrame.Visible = true;
+	states.IsTesting = true;
+	
+	GenerateMeteors();
+	local spawnLocations = game.Workspace.MeteorSpawnLocations;
+	local start = spawnLocations.Origin.Position;
+	local r = (start - spawnLocations.End.Position).Magnitude;
+
+	wait(0.5)
+	FadeOut(1);
+	
+	local restarting = false;
+	local function restartTraining()
+		if restarting == true then return; end
+		
+		restarting = true;
+		DestroyMeteors();
+		for i,v in pairs(rockets) do
+			v.Object:PivotTo(CFrame.new(start));
+		end
+		GenerateMeteors();
+		for i,v in pairs(rockets) do
+			v:ResetVariables();
+			v:Run();
+		end
+		restarting = false;
+	end
+	
+	local distIndexes = {};
+	for i = 1, aiCount, 1 do
+		distIndexes[i] = 0;
+		local rocket = rocketHandler:new();
+		rocket:SetInputsGetter(function()
+			return Vector2.new((math.random()-0.5)/0.5,(math.random()-0.5)/0.5);
+		end):SetCheckCollisions(function()
+			local root = rocket.Object.PrimaryPart;
+			local rocketPos = Vector2.new(root.Position.X, root.Position.Z);
+			local rocketR = rocket.Settings.Radius;
+			
+			local meteorsToCheck = {};
+			local insert = function(point)
+				meteorsToCheck[#meteorsToCheck + 1] = point;
+			end
+			quadMeteors:queryRange({x = rocketPos.X, y = rocketPos.Y}, rocketR + meteorSize.Y, insert);
+
+			for i,v in pairs(meteorsToCheck) do
+				local distVec = Vector2.new(v.x, v.y) - rocketPos
+				local distSqr = distVec.X^2 + distVec.Y^2;
+				if (distSqr <= (rocketR + v.radius)^2) then
+					return true;
+				end
+			end
+			return false;
+		end):SetOnCollision(function()
+			rocket:Pause();
+			local explosionNew = explosion:Clone();
+			explosionNew.Parent = game.Workspace;
+			explosionNew.Position = rocket.Object.PrimaryPart.Position;
+			explosionNew.ParticleEmitter:Emit(100);
+			game.Debris:AddItem(explosionNew, 2);
+		end):SetFinishChecker(function()
+			local rocketPos = rocket.Object.PrimaryPart.Position;
+			local distSqrt = rocketPos - start;
+			distSqrt = distSqrt:Dot(distSqrt);
+			
+			distIndexes[i] = distSqrt;
+
+			if distSqrt >= r*r then
+				return true;
+			else
+				return false;
+			end
+		end):SetOnFinish(function()
+			rocket:Pause();
+			restartTraining();
+		end):Start();
+		rockets[#rockets + 1] = rocket;
+	end
+	
+	
+	local val = Instance.new('NumberValue'); val.Value = 1;
+	local cameraOffset = CFrame.new(0,0,0);
+	local cameraIndex = 1;
+	local cameraInterval = Vector2.new(25, 50);
+	cameraTarget = function()
+		local rocket = rockets[cameraIndex];
+		local zDist = Lerp(cameraInterval.X, cameraInterval.Y, rocket:GetSpeedAlpha());
+		local originCF = CFrame.new(rocket.Object.PrimaryPart.Position)*CFrame.Angles(-math.pi/2,0,0)*CFrame.new(0,0,zDist);
+		return cameraOffset:Lerp(originCF, val.Value);
+	end
+	
+	aiHandler = step.RenderStepped:Connect(function(t)
+		local minIndex = -1;
+		local minValue = -1;
+		for i,v in pairs(distIndexes) do
+			if rockets[i]:GetStatus() == 1 and v > minValue then
+				minValue = v;
+				minIndex = i;
+			end
+		end
+		
+		if minIndex ~= -1 then
+			if minIndex ~= cameraIndex then
+				local dist = (rockets[minIndex].Object.PrimaryPart.Position - rockets[cameraIndex].Object.PrimaryPart.Position).Magnitude;
+				cameraIndex = minIndex;
+				cameraOffset = cam.CFrame;
+				val.Value = 0;
+				ts:Create(val, TweenInfo.new(dist/aiCameraSwitchSpeed, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, 0, false, 0), {Value = 1}):Play();
+			end
+		else
+			restartTraining();
+		end
+	end)
+	
+	sliderCallback = function(alpha)
+		local num = Lerp(aiTimeScale.X, aiTimeScale.Y, alpha)
+		local intPart = math.floor(num)
+		local fracPart = math.floor((num - intPart) * 100)
+		ui.AIFrame.Slider.Bar.TextLabel.Text = 'x'..tostring(intPart)..string.format(".%02d", fracPart);
+		ui.AIFrame.Slider.Bar.TextLabel.TextLabel.Text = ui.AIFrame.Slider.Bar.TextLabel.Text;
+		
+		for i,v in pairs(rockets) do
+			v:SetTimeScale(num);
+		end
+	end
 end
 
 function SetupCamera()
@@ -234,13 +408,59 @@ function SetupButtons()
 	ui.Buttons.PlaySolo.Activated:Connect(function()
 		for i,v in pairs(states) do
 			if v == true then
-				return;				-- Sa nu paresti function haulting. Odata apasat, nu mai poate fi activat pana nu se termina de procesat
+				return;				-- Sa nu patesti function haulting. Odata apasat, nu mai poate fi activat pana nu se termina de procesat
 			end
 		end
 		
 		FadeIn(1);
 		wait(1)
 		SetupSoloGame();
+	end)
+	
+	ui.Buttons.TrainAI.Activated:Connect(function()
+		for i,v in pairs(states) do
+			if v == true then
+				return;				-- Sa nu patesti function haulting. Odata apasat, nu mai poate fi activat pana nu se termina de procesat
+			end
+		end
+
+		FadeIn(1);
+		wait(1)
+		SetupAITraining();
+	end)
+	
+	ui.AIFrame.Back.Activated:Connect(function()
+		if states.IsTesting == true then
+			FadeIn(1.5);
+			wait(2)
+			ClearGame();
+			FadeOut(1.5);
+			ShowScene();
+		end
+	end)
+	
+	local event;
+	ui.AIFrame.Slider.MouseButton1Down:Connect(function()
+		if event then
+			event:Disconnect();
+			event = nil;
+		end
+		
+		event = step.RenderStepped:Connect(function()
+			local xPos = plr:GetMouse().X;
+			xPos -= ui.AIFrame.Slider.Bar.AbsolutePosition.X;
+			local alpha = math.clamp(xPos/ui.AIFrame.Slider.Bar.AbsoluteSize.X, 0, 1);
+			ui.AIFrame.Slider.Bar.Circle.Position = UDim2.new(alpha, 0, 0.5, 0);
+			if sliderCallback then
+				sliderCallback(alpha);
+			end
+		end)
+	end)
+	ui.AIFrame.Slider.MouseButton1Up:Connect(function()
+		if event then
+			event:Disconnect();
+			event = nil;
+		end
 	end)
 end
 
