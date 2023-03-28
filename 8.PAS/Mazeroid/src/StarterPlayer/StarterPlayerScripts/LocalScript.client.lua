@@ -27,19 +27,26 @@ cam.CameraType = Enum.CameraType.Scriptable;
 
 local rocketHandler = require(game.ReplicatedStorage.RocketHandler);
 local rectangle = require(game.ReplicatedStorage.Rectangle);
-local quadTree = require(game.ReplicatedStorage.QuadTree)
+local quadTree = require(game.ReplicatedStorage.QuadTree);
+local neuralNetwork = require(game.ReplicatedStorage.NeuralNetwork);
 
 local meteors = {};
 local quadMeteors = nil;
 local meteorsCount = 10000;
+local meteorsCountAI = 2500;
 local meteorSize = Vector3.new(2,5);
 
 local rockets = {};
+local artificialInteligence = {};
 
-local aiCount = 20;
+local aiCount = 30;
 local aiHandler = nil;
-local aiCameraSwitchSpeed = 100;
-local aiTimeScale = Vector2.new(1,10);
+local aiCameraSwitchSpeed = 300;
+local aiTimeScale = Vector2.new(1,4);
+local aiInputs = 9;
+local aiResolutionAngle = 120;
+local aiResolutionLength = 30;
+local aiMutationChance = 0.0005;
 
 local sliderCallback = nil;
 
@@ -110,7 +117,7 @@ local function DestroyMeteors()
 	game.Workspace.Rockets:ClearAllChildren();
 end
 
-local function GenerateMeteors()
+local function GenerateMeteors(count)
 	local spawnLocations = game.Workspace.MeteorSpawnLocations;
 	local start = spawnLocations.Origin.Position;
 	local r = (start - spawnLocations.End.Position).Magnitude;
@@ -120,7 +127,7 @@ local function GenerateMeteors()
 
 	local innerCircle = 0.1/32;
 
-	for i = 1, meteorsCount do
+	for i = 1, count do
 		local radius = meteorSize.X + (meteorSize.Y - meteorSize.X) * math.random();
 		local newMeteor = meteor:Clone();
 		newMeteor.Parent = game.Workspace.Meteors;
@@ -157,14 +164,18 @@ local function ClearGame()
 	for i,v in pairs(rockets) do
 		v:Destroy();
 	end
+	for i,v in pairs(artificialInteligence) do
+		v:Destroy();
+	end
 	rockets = {};
+	artificialInteligence = {};
 end
 
 local function SetupSoloGame()
 	ui.Buttons.Visible = false;
 	states.IsPlaying = true;
 	
-	GenerateMeteors();
+	GenerateMeteors(meteorsCount);
 	local spawnLocations = game.Workspace.MeteorSpawnLocations;
 	local start = spawnLocations.Origin.Position;
 	local r = (start - spawnLocations.End.Position).Magnitude;
@@ -272,7 +283,7 @@ local function SetupAITraining()
 	ui.AIFrame.Visible = true;
 	states.IsTesting = true;
 	
-	GenerateMeteors();
+	GenerateMeteors(meteorsCountAI);
 	local spawnLocations = game.Workspace.MeteorSpawnLocations;
 	local start = spawnLocations.Origin.Position;
 	local r = (start - spawnLocations.End.Position).Magnitude;
@@ -280,29 +291,123 @@ local function SetupAITraining()
 	wait(0.5)
 	FadeOut(1);
 	
+	local generation = 1;
+	local rocketsData = {};
+	local timeScale = 1;
+	local timePassed = 0;
 	local restarting = false;
 	local function restartTraining()
 		if restarting == true then return; end
-		
 		restarting = true;
+		
+		for i,v in pairs(rockets) do
+			v:Pause();
+		end
+		
+		generation += 1;
+		warn("GENERATION:",generation);
+		
+		for i,v in pairs(rocketsData) do
+			if v.TimeFinished == 0 then
+				v.TimeFinished = timePassed;
+			end
+		end
+		
+		local fitness = {};
+		local fitnessSum = 0;
+		for i = 1,aiCount do
+			local data = rocketsData[i];
+			--print('FITNESS VALUES: ', data.Distance, data.TimeFinished)
+			fitness[i] = (data.Distance^6)/data.TimeFinished;
+			fitnessSum += fitness[i];
+		end
+		--print(fitness);
+		local newAIs = {};
+		for i = 1,aiCount do
+			local val = math.random()*fitnessSum;
+			--print(val);
+			local ai1 = -1;
+			for j = 1, aiCount do
+				if val <= fitness[j] then
+					ai1 = j;
+					break;
+				else
+					val -= fitness[j];
+				end
+			end
+			
+			local val2 = math.random()*fitnessSum;
+			--print(val2);
+			local ai2 = -1;
+			for j = 1, aiCount do
+				if val2 <= fitness[j] then
+					ai2 = j;
+					break;
+				else
+					val2 -= fitness[j];
+				end
+			end
+			
+			newAIs[#newAIs + 1] = neuralNetwork:mergeAIs(artificialInteligence[ai1],artificialInteligence[ai2],fitness[ai1],fitness[ai2], aiMutationChance);
+		end
+		artificialInteligence = newAIs;
+		
 		DestroyMeteors();
 		for i,v in pairs(rockets) do
 			v.Object:PivotTo(CFrame.new(start));
 		end
-		GenerateMeteors();
+		GenerateMeteors(meteorsCountAI);
+		for i,v in pairs(rocketsData) do
+			v.Distance = 0;
+			v.TimeFinished = 0;
+			v.Collided = false;
+		end
 		for i,v in pairs(rockets) do
 			v:ResetVariables();
 			v:Run();
 		end
+		timePassed = 0;
 		restarting = false;
 	end
 	
-	local distIndexes = {};
 	for i = 1, aiCount, 1 do
-		distIndexes[i] = 0;
+		rocketsData[i] = {
+			Distance = 0;
+			TimeFinished = 0;
+			Collided = false;
+		};
+		local ai = neuralNetwork:new(aiInputs + 2, {8, 4, 2}, 2);
 		local rocket = rocketHandler:new();
 		rocket:SetInputsGetter(function()
-			return Vector2.new((math.random()-0.5)/0.5,(math.random()-0.5)/0.5);
+			local root = rocket.Object.PrimaryPart.CFrame;
+			local inputs = {root.LookVector.X, root.LookVector.Z};
+			for i = -(aiInputs-1)/2,(aiInputs-1)/2,1 do
+				local angleDelta = aiResolutionAngle/aiInputs*i;
+				local newCF = root*CFrame.Angles(0, math.rad(angleDelta), 0);
+				
+				local raycastParams = RaycastParams.new()
+				raycastParams.FilterType = Enum.RaycastFilterType.Include
+				raycastParams.FilterDescendantsInstances = {game.Workspace.Meteors}
+				raycastParams.IgnoreWater = true
+				
+				local dist = aiResolutionLength;
+				local pos = newCF.Position + newCF.LookVector * aiResolutionLength;
+				local raycastResult = workspace:Raycast(newCF.Position, newCF.LookVector * aiResolutionLength, raycastParams)
+				if raycastResult then
+					dist = (raycastResult.Position-newCF.Position).Magnitude;
+					pos = raycastResult.Position;
+				end
+				inputs[#inputs + 1] = dist/aiResolutionLength;
+				
+				--local p = Instance.new('Part');
+				--p.Parent = game.Workspace;
+				--p.Anchored = true;
+				--p.CanCollide = false;
+				--p.Size = Vector3.new(1,1,1)*0.2;
+				--p.CFrame = CFrame.new(pos);
+			end
+			local outputs = artificialInteligence[i]:PropagateForward(inputs);
+			return Vector2.new(outputs[1],outputs[2]);
 		end):SetCheckCollisions(function()
 			local root = rocket.Object.PrimaryPart;
 			local rocketPos = Vector2.new(root.Position.X, root.Position.Z);
@@ -323,6 +428,9 @@ local function SetupAITraining()
 			end
 			return false;
 		end):SetOnCollision(function()
+			rocketsData[i].TimeFinished = timePassed;
+			rocketsData[i].Collided = true;
+			
 			rocket:Pause();
 			local explosionNew = explosion:Clone();
 			explosionNew.Parent = game.Workspace;
@@ -334,7 +442,7 @@ local function SetupAITraining()
 			local distSqrt = rocketPos - start;
 			distSqrt = distSqrt:Dot(distSqrt);
 			
-			distIndexes[i] = distSqrt;
+			rocketsData[i].Distance = math.sqrt(distSqrt);
 
 			if distSqrt >= r*r then
 				return true;
@@ -342,10 +450,13 @@ local function SetupAITraining()
 				return false;
 			end
 		end):SetOnFinish(function()
+			rocketsData[i].TimeFinished = timePassed;
+			
 			rocket:Pause();
 			restartTraining();
 		end):Start();
 		rockets[#rockets + 1] = rocket;
+		artificialInteligence[#artificialInteligence + 1] = ai;
 	end
 	
 	
@@ -361,16 +472,23 @@ local function SetupAITraining()
 	end
 	
 	aiHandler = step.RenderStepped:Connect(function(t)
+		timePassed += t * timeScale;
+		
 		local minIndex = -1;
 		local minValue = -1;
-		for i,v in pairs(distIndexes) do
-			if rockets[i]:GetStatus() == 1 and v > minValue then
-				minValue = v;
+		for i,v in pairs(rocketsData) do
+			if rockets[i]:GetStatus() == 1 and v.Distance > minValue then
+				minValue = v.Distance;
 				minIndex = i;
 			end
 		end
 		
 		if minIndex ~= -1 then
+			--print(timePassed, r/(rockets[minIndex].Settings.Speed.Y*0.9));
+			if timePassed > r/((rockets[minIndex].Settings.Speed.X+rockets[minIndex].Settings.Speed.Y)/2) then
+				restartTraining();
+			end
+			
 			if minIndex ~= cameraIndex then
 				local dist = (rockets[minIndex].Object.PrimaryPart.Position - rockets[cameraIndex].Object.PrimaryPart.Position).Magnitude;
 				cameraIndex = minIndex;
@@ -390,6 +508,7 @@ local function SetupAITraining()
 		ui.AIFrame.Slider.Bar.TextLabel.Text = 'x'..tostring(intPart)..string.format(".%02d", fracPart);
 		ui.AIFrame.Slider.Bar.TextLabel.TextLabel.Text = ui.AIFrame.Slider.Bar.TextLabel.Text;
 		
+		timeScale = num;
 		for i,v in pairs(rockets) do
 			v:SetTimeScale(num);
 		end
