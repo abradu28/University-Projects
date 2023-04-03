@@ -32,7 +32,7 @@ local neuralNetwork = require(game.ReplicatedStorage.NeuralNetwork);
 
 local meteors = {};
 local quadMeteors = nil;
-local meteorsCount = 10000;
+local meteorsCount = 5000;
 local meteorsCountAI = 2500;
 local meteorSize = Vector3.new(2,5);
 
@@ -46,7 +46,10 @@ local aiTimeScale = Vector2.new(1,4);
 local aiInputs = 9;
 local aiResolutionAngle = 120;
 local aiResolutionLength = 30;
-local aiMutationChance = 0.0005;
+local aiMutationChance = 0.005;
+
+--local aa = require(game.ReplicatedStorage.NeuralNetwork) local ai1 = aa:new(3, {8, 4, 2}, 2) local ai2 = aa:new(3, {8, 4, 2}, 2) local ai3 = aa:mergeAIs(ai1, ai2, 1, 5, 0) 
+--warn(ai1.Layers[1][1][2]) warn(ai2.Layers[1][1][2]) warn(ai3.Layers[1][1][2])
 
 local sliderCallback = nil;
 
@@ -246,12 +249,13 @@ local function SetupSoloGame()
 		local distSqrt = rocketPos - start;
 		distSqrt = distSqrt:Dot(distSqrt);
 		
-		if distSqrt >= r*r then
+		if distSqrt >= (r*1.05)^2 then
 			return true;
 		else
 			return false;
 		end
 	end):SetOnFinish(function()
+		playerRocket:Stop();
 
 		ui.GetRich.Text = 'GET RICH OR DIE TRYING';
 		ui.GetRich.TextLabel.Text = 'GET RICH OR DIE TRYING';
@@ -318,9 +322,10 @@ local function SetupAITraining()
 		for i = 1,aiCount do
 			local data = rocketsData[i];
 			--print('FITNESS VALUES: ', data.Distance, data.TimeFinished)
-			fitness[i] = (data.Distance^6)/data.TimeFinished;
+			fitness[i] = data.Distance^2/data.TimeFinished + (data.Finished == true and 10000000 or 0);
 			fitnessSum += fitness[i];
 		end
+		--table.sort(fitness);
 		--print(fitness);
 		local newAIs = {};
 		for i = 1,aiCount do
@@ -336,10 +341,11 @@ local function SetupAITraining()
 				end
 			end
 			
-			local val2 = math.random()*fitnessSum;
+			local val2 = math.random()*(fitnessSum - fitness[ai1]);
 			--print(val2);
 			local ai2 = -1;
 			for j = 1, aiCount do
+				if j == ai1 then continue; end
 				if val2 <= fitness[j] then
 					ai2 = j;
 					break;
@@ -347,6 +353,7 @@ local function SetupAITraining()
 					val2 -= fitness[j];
 				end
 			end
+			--warn('MERGING:',ai1,"WITH",ai2);
 			
 			newAIs[#newAIs + 1] = neuralNetwork:mergeAIs(artificialInteligence[ai1],artificialInteligence[ai2],fitness[ai1],fitness[ai2], aiMutationChance);
 		end
@@ -361,6 +368,7 @@ local function SetupAITraining()
 			v.Distance = 0;
 			v.TimeFinished = 0;
 			v.Collided = false;
+			v.Finished = false;
 		end
 		for i,v in pairs(rockets) do
 			v:ResetVariables();
@@ -375,12 +383,18 @@ local function SetupAITraining()
 			Distance = 0;
 			TimeFinished = 0;
 			Collided = false;
+			Finished = false;
 		};
-		local ai = neuralNetwork:new(aiInputs + 2, {8, 4, 2}, 2);
+		local ai = neuralNetwork:new(aiInputs + 2, {8, 4}, 2);
 		local rocket = rocketHandler:new();
 		rocket:SetInputsGetter(function()
 			local root = rocket.Object.PrimaryPart.CFrame;
-			local inputs = {root.LookVector.X, root.LookVector.Z};
+			local vec = (root.Position - start).Unit;
+			local orientation = root.LookVector:Dot(vec);
+			if vec.X ~= vec.X or vec.Y ~= vec.Y or vec.Z ~= vec.Z then
+				orientation = 1;
+			end
+			local inputs = {orientation, rocket:GetSpeedAlpha()};
 			for i = -(aiInputs-1)/2,(aiInputs-1)/2,1 do
 				local angleDelta = aiResolutionAngle/aiInputs*i;
 				local newCF = root*CFrame.Angles(0, math.rad(angleDelta), 0);
@@ -450,6 +464,7 @@ local function SetupAITraining()
 				return false;
 			end
 		end):SetOnFinish(function()
+			rocketsData[i].Finished = true;
 			rocketsData[i].TimeFinished = timePassed;
 			
 			rocket:Pause();
